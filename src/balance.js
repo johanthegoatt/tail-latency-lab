@@ -65,7 +65,7 @@ export function simulateBalance({ servers = 100, lambda = 0.9, jobs = 200000, po
     now += exponential(rand, 1 / (lambda * servers));
     const s = choose(now);
     const q = deps[s];
-    const queued = q.length - head[s];
+    const queued = len(s, now);
     if (queued > maxQueue) maxQueue = queued;
     const start = queued ? Math.max(now, q[q.length - 1]) : now;
     const done = start + exponential(rand, 1);

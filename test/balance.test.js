@@ -31,3 +31,8 @@ test("round robin sits between random and two choices", () => {
   const random = run("random"), rr = run("roundRobin"), two = run("two");
   assert.ok(rr.mean < random.mean && rr.mean > two.mean, `${random.mean} ${rr.mean} ${two.mean}`);
 });
+
+test("max queue is measured for policies that never sample queue lengths", () => {
+  const r = simulateBalance({ servers: 20, lambda: 0.5, jobs: 20000, policy: "roundRobin", seed: 6 });
+  assert.ok(r.maxQueue < 20, `max queue ${r.maxQueue}`);
+});
