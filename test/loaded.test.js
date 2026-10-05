@@ -20,13 +20,16 @@ test("at 30% load a p95 hedge cuts p99.9 and costs a few percent of work", () =>
   assert.ok(p95.extraWork < 0.1, `extra work ${p95.extraWork}`);
 });
 
-test("at 60% load, duplicating every request moves the cost into the median", () => {
-  const base = simulateLoaded({ ...model, load: 0.6, seed: 3 });
-  const p95 = simulateLoaded({ ...model, load: 0.6, seed: 3, delay: base.p95 });
-  const dup = simulateLoaded({ ...model, load: 0.6, seed: 3, delay: 0 });
-  assert.equal(dup.extraRequests, 1);
-  assert.ok(dup.extraWork > 0.3, `dup work ${dup.extraWork}`);
-  assert.ok(dup.p50 > base.p50 * 2, `dup p50 ${dup.p50} vs ${base.p50}`);
-  assert.ok(p95.p50 < base.p50 * 1.3, `p95 hedge p50 ${p95.p50} vs ${base.p50}`);
-  assert.ok(p95.extraWork < 0.1, `p95 hedge work ${p95.extraWork}`);
+test("duplicating every request wins at 20% load and collapses at 70%", () => {
+  const run = (load, delay) => simulateLoaded({ ...model, load, seed: 3, requests: 100000, delay });
+  const light = run(0.2), lightDup = run(0.2, 0);
+  assert.ok(lightDup.p99 * 3 < light.p99, `20%: ${light.p99} -> ${lightDup.p99}`);
+  assert.ok(lightDup.p50 < light.p50);
+
+  const heavy = run(0.7), heavyDup = run(0.7, 0), heavyHedge = run(0.7, heavy.p95);
+  assert.equal(heavyDup.extraRequests, 1);
+  assert.ok(heavyDup.extraWork > 0.3, `dup work ${heavyDup.extraWork}`);
+  assert.ok(heavyDup.p50 > heavy.p50 * 5, `70% p50: ${heavy.p50} -> ${heavyDup.p50}`);
+  assert.ok(heavyHedge.p999 < heavy.p999, `70% p95 hedge p99.9: ${heavy.p999} -> ${heavyHedge.p999}`);
+  assert.ok(heavyHedge.extraWork < 0.06, `p95 hedge work ${heavyHedge.extraWork}`);
 });
