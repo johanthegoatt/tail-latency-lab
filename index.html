@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tail Latency Lab</title>
+  <meta name="description" content="Why one slow server in a hundred makes most requests slow, and what fixes it: fan-out amplification, hedged requests on idle and loaded replicas, and power-of-two-choices load balancing, simulated in the browser.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="src/style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">tail-latency-lab</p>
+      <h1>One slow server in a hundred makes most requests slow</h1>
+      <p class="lede">A search or a feed page often waits on <strong>100 backends in parallel</strong> and is only as fast
+        as the slowest. If each backend has a 1% chance of a one-second hiccup, <strong>63%</strong> of page loads
+        hit one. This page simulates that effect and three fixes from the literature: hedged requests, hedging under
+        real load, and picking the shorter of two queues. Every number is computed in this tab from a seeded run.</p>
+    </header>
+
+    <h2 class="section-h">1. Fan-out turns a leaf's p99 into the request's median</h2>
+    <p class="section-p">Each request waits on <span id="fText"></span> leaves at once. A leaf is slow with probability
+      p, so a request is slow with probability <code>1 - (1 - p)^n</code>. The line is that formula, the dot is the
+      simulation.</p>
+    <form id="fan" class="panel controls" aria-label="Fan-out settings">
+      <label>Fan-out <output name="nOut"></output>
+        <input type="range" name="n" min="1" max="500" value="100">
+      </label>
+      <label>Slow-leaf chance <output name="pOut"></output>
+        <input type="range" name="p" min="0.001" max="0.05" step="0.001" value="0.01">
+      </label>
+    </form>
+    <section class="grid2">
+      <div class="panel chart">
+        <canvas id="fanChart" role="img" aria-label="Share of slow requests against fan-out"></canvas>
+        <p id="fanNote"></p>
+      </div>
+      <div class="grid" id="fanCards" aria-live="polite"></div>
+    </section>
+
+    <h2 class="section-h">2. Hedged requests</h2>
+    <p class="section-p">Send to one replica. If nothing has come back by the delay, send the same request to a second
+      replica and take whichever answers first, cancelling the other. Dean and Barroso set the delay at the p95, so
+      the backup fires on about 5% of requests. Replicas here are idle; section 3 adds load.</p>
+    <form id="hedge" class="panel controls" aria-label="Hedge settings">
+      <label>Hedge delay at <output name="qOut"></output>
+        <input type="range" name="q" min="0" max="5" step="1" value="2">
+      </label>
+      <label>Seed <output name="seedOut"></output>
+        <input type="range" name="seed" min="1" max="30" value="1">
+      </label>
+    </form>
+    <section class="grid" id="hedgeCards" aria-live="polite"></section>
+
+    <h2 class="section-h">3. Hedging when replicas are busy</h2>
+    <p class="section-p">Now 10 replicas serve a Poisson stream in FIFO order and a one-second hiccup blocks everyone
+      queued behind it. A backup waits in another replica's queue and holds that replica until one copy answers, so
+      hedges cost capacity. Duplicating every request is the best policy at low load and the worst near saturation.</p>
+    <form id="load" class="panel controls" aria-label="Load settings">
+      <label>Load per replica <output name="loadOut"></output>
+        <input type="range" name="load" min="0.1" max="0.75" step="0.05" value="0.6">
+      </label>
+      <button type="button" id="runLoad">Run 60,000 requests</button>
+    </form>
+    <section class="grid" id="loadCards" aria-live="polite"></section>
+
+    <h2 class="section-h">4. The power of two choices</h2>
+    <p class="section-p">Jobs arrive at 100 servers. Sending each to a random server makes every server an M/M/1 queue,
+      with mean time <code>1 / (1 - load)</code>. Sampling two servers and joining the shorter queue cuts that
+      exponentially; a third sample adds only a constant factor. The theory line is Mitzenmacher's fixed point.</p>
+    <form id="bal" class="panel controls" aria-label="Load balancing settings">
+      <label>Arrival rate per server <output name="lambdaOut"></output>
+        <input type="range" name="lambda" min="0.5" max="0.98" step="0.01" value="0.9">
+      </label>
+      <button type="button" id="runBal">Run 150,000 jobs</button>
+    </form>
+    <section class="grid" id="balCards" aria-live="polite"></section>
+
+    <h2 class="section-h">5. In code</h2>
+    <section class="panel api">
+      <div>
+        <p>Five small modules with no dependencies. Each simulation is checked by <code>node --test</code> against its
+          closed form: the fan-out formula, the two-replica survival product for hedging, and the supermarket-model
+          fixed point for d choices.</p>
+        <ol class="sources">
+          <li><a href="https://research.google/pubs/the-tail-at-scale/">Dean, Barroso, The Tail at Scale, CACM 56(2), 2013</a></li>
+          <li><a href="https://www.eecs.harvard.edu/~michaelm/postscripts/tpds2001.pdf">Mitzenmacher, The Power of Two Choices in Randomized Load Balancing, IEEE TPDS 2001</a></li>
+        </ol>
+      </div>
+      <pre><code>import { slowShare } from "./src/fanout.js";
+import { simulateHedge } from "./src/hedge.js";
+import { simulateLoaded } from "./src/loaded.js";
+import { simulateBalance } from "./src/balance.js";
+
+slowShare(0.01, 100);              // 0.634
+simulateHedge({ delayQ: 0.95 });   // p99.9 and extra work
+simulateLoaded({ load: 0.6, delay: 0 });
+simulateBalance({ lambda: 0.9, policy: "two" });</code></pre>
+    </section>
+  </main>
+
+  <script type="module">
+    import { slowShare, simulateFanout } from "./src/fanout.js";
+    import { simulateHedge } from "./src/hedge.js";
+    import { simulateLoaded } from "./src/loaded.js";
+    import { simulateBalance, supermarketTime } from "./src/balance.js";
+
+    const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    const pct = (v) => `${(v * 100).toFixed(1)}%`;
+    const ms = (v) => (v >= 1000 ? `${(v / 1000).toFixed(2)} s` : `${v.toFixed(v < 10 ? 1 : 0)} ms`);
+    const debounce = (fn, wait = 60) => { let t; return () => { clearTimeout(t); t = setTimeout(fn, wait); }; };
+
+    function canvasCtx(canvas) {
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas.clientWidth, h = canvas.clientHeight;
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      const ctx = canvas.getContext("2d");
+      ctx.scale(dpr, dpr);
+      return { ctx, w, h };
+    }
+
+    const card = (title, big, sub, rows, cls = "") => {
+      const el = document.createElement("article");
+      el.className = `panel card ${cls}`;
+      el.innerHTML = `<header><h3>${title}</h3></header>
+        <div class="big"><strong>${big}</strong><span>${sub}</span></div>
+        <dl>${rows.map(([k, v, bad]) => `<div class="${bad ? "bad" : ""}"><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>`;
+      return el;
+    };
+
+    // 1. Fan-out
+    const fan = document.getElementById("fan");
+    function renderFan() {
+      const n = Number(fan.elements.n.value), p = Number(fan.elements.p.value);
+      fan.elements.nOut.value = n;
+      fan.elements.pOut.value = pct(p);
+      document.getElementById("fText").textContent = `${n}`;
+      const sim = simulateFanout({ fanout: n, requests: Math.max(400, Math.round(200000 / n)), slowP: p, seed: 1 });
+      document.getElementById("fanCards").replaceChildren(
+        card("one leaf", ms(sim.leaf.p50), "median", [["p99", ms(sim.leaf.p99)], ["slow", pct(sim.leafSlow)]]),
+        card(`all ${n} leaves`, ms(sim.request.p50), "median", [["p99", ms(sim.request.p99)], ["slow", pct(sim.requestSlow), sim.requestSlow > 0.5]], sim.requestSlow > 0.5 ? "worst" : ""),
+      );
+      document.getElementById("fanNote").textContent =
+        `Formula ${pct(slowShare(p, n))}, simulated ${pct(sim.requestSlow)} of requests over 100 ms.`;
+
+      const { ctx, w, h } = canvasCtx(document.getElementById("fanChart"));
+      const pad = 24, maxN = 500;
+      const x = (v) => pad + (v / maxN) * (w - pad * 2), y = (v) => h - pad - v * (h - pad * 2);
+      ctx.strokeStyle = css("--edge");
+      ctx.beginPath(); ctx.moveTo(pad, y(0)); ctx.lineTo(w - pad, y(0)); ctx.moveTo(pad, y(0.5)); ctx.lineTo(w - pad, y(0.5)); ctx.stroke();
+      ctx.strokeStyle = css("--accent"); ctx.lineWidth = 2; ctx.beginPath();
+      for (let k = 1; k <= maxN; k += 2) { const yy = y(slowShare(p, k)); k === 1 ? ctx.moveTo(x(k), yy) : ctx.lineTo(x(k), yy); }
+      ctx.stroke();
+      ctx.fillStyle = css("--no"); ctx.beginPath(); ctx.arc(x(n), y(sim.requestSlow), 5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = css("--muted"); ctx.font = `11px ${css("--mono")}`;
+      ctx.fillText("50% slow", pad + 4, y(0.5) - 4);
+      ctx.fillText("fan-out 500", w - pad - 72, h - 6);
+    }
+    fan.addEventListener("input", debounce(renderFan));
+
+    // 2. Hedging, idle replicas
+    const QS = [0.5, 0.9, 0.95, 0.99, 0.999, null];
+    const hedge = document.getElementById("hedge");
+    function renderHedge() {
+      const q = QS[Number(hedge.elements.q.value)], seed = Number(hedge.elements.seed.value);
+      hedge.elements.qOut.value = q ? `p${(q * 100).toFixed(q === 0.999 ? 1 : 0)}` : "never";
+      hedge.elements.seedOut.value = seed;
+      const r = simulateHedge({ seed, ...(q ? { delayQ: q } : { delay: Infinity }) });
+      const row = (s) => [["p50", ms(s.p50)], ["p99", ms(s.p99)], ["p99.9", ms(s.p999)]];
+      document.getElementById("hedgeCards").replaceChildren(
+        card("no hedge", ms(r.plain.p999), "p99.9", row(r.plain), "worst"),
+        card(q ? `hedge after ${ms(r.delay)}` : "hedge off", ms(r.hedged.p999), "p99.9", row(r.hedged), q ? "best" : ""),
+        card("cost", pct(r.extraRequests), "extra requests", [["extra work", pct(r.extraWork)]]),
+      );
+    }
+    hedge.addEventListener("input", debounce(renderHedge));
+
+    // 3. Hedging under load
+    const loadForm = document.getElementById("load"), runLoad = document.getElementById("runLoad");
+    function renderLoad() {
+      const load = Number(loadForm.elements.load.value);
+      loadForm.elements.loadOut.value = pct(load);
+      runLoad.disabled = true;
+      setTimeout(() => {
+        const opts = { load, seed: 1, requests: 60000 };
+        const base = simulateLoaded(opts);
+        const rows = [
+          ["no hedge", base],
+          [`hedge at p95 (${ms(base.p95)})`, simulateLoaded({ ...opts, delay: base.p95 })],
+          [`hedge at p50 (${ms(base.p50)})`, simulateLoaded({ ...opts, delay: base.p50 })],
+          ["duplicate all", simulateLoaded({ ...opts, delay: 0 })],
+        ];
+        const best = Math.min(...rows.map(([, r]) => r.p99)), worst = Math.max(...rows.map(([, r]) => r.p99));
+        document.getElementById("loadCards").replaceChildren(...rows.map(([name, r]) =>
+          card(name, ms(r.p99), "p99", [["p50", ms(r.p50), r.p50 > base.p50 * 2], ["p99.9", ms(r.p999)], ["extra work", pct(r.extraWork), r.extraWork > 0.2]],
+            r.p99 === best ? "best" : r.p99 === worst ? "worst" : "")));
+        runLoad.disabled = false;
+      }, 20);
+    }
+    loadForm.addEventListener("input", () => { loadForm.elements.loadOut.value = pct(Number(loadForm.elements.load.value)); });
+    runLoad.addEventListener("click", renderLoad);
+
+    // 4. Load balancing
+    const bal = document.getElementById("bal"), runBal = document.getElementById("runBal");
+    const NAMES = { random: "random", roundRobin: "round robin", two: "best of 2", three: "best of 3", shortest: "shortest of all 100" };
+    function renderBal() {
+      const lambda = Number(bal.elements.lambda.value);
+      bal.elements.lambdaOut.value = pct(lambda);
+      runBal.disabled = true;
+      setTimeout(() => {
+        const rows = Object.keys(NAMES).map((policy) => simulateBalance({ servers: 100, lambda, jobs: 150000, policy, seed: 1 }));
+        const best = Math.min(...rows.map((r) => r.mean)), worst = Math.max(...rows.map((r) => r.mean));
+        document.getElementById("balCards").replaceChildren(...rows.map((r) =>
+          card(NAMES[r.policy], r.mean.toFixed(2), "mean time, service = 1",
+            [["p99", r.p99.toFixed(1)], ["max queue", r.maxQueue], ...(r.theory ? [["theory", r.theory.toFixed(2)]] : [])],
+            r.mean === best ? "best" : r.mean === worst ? "worst" : "")));
+        runBal.disabled = false;
+      }, 20);
+    }
+    bal.addEventListener("input", () => { bal.elements.lambdaOut.value = pct(Number(bal.elements.lambda.value)); });
+    runBal.addEventListener("click", renderBal);
+
+    window.addEventListener("resize", debounce(renderFan, 100));
+    renderFan();
+    renderHedge();
+    renderLoad();
+    renderBal();
+    window.__taillab = { slowShare, simulateFanout, simulateHedge, simulateLoaded, simulateBalance, supermarketTime };
+  </script>
+</body>
+</html>
