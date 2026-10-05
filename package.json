@@ -1,0 +1,11 @@
+{
+  "name": "tail-latency-lab",
+  "version": "0.1.0",
+  "description": "Why p99 matters at scale: fan-out tail amplification, hedged and tied requests, and power-of-two-choices load balancing, each simulated on seeded workloads and checked against its closed form.",
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test"
+  }
+}
