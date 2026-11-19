@@ -50,6 +50,7 @@ The second sample cuts mean time almost 4x; the third saves another 0.56.
 ## How each one works
 
 - **Fan-out** (`src/fanout.js`): each request draws n leaf latencies and takes the max. `slowShare(p, n)` is the closed form and `fanoutFor(p, target)` inverts it. From Dean and Barroso, *The Tail at Scale*, CACM 56(2), 2013.
+- **Order statistics** (`src/order.js`): the paper version of the same idea. A fan-out's time is the max of n, so its expected value and quantiles come straight from order statistics, no simulation needed. `expectedMaxExponential(n, mean)` is `mean * H_n` and grows like `ln(n)` (doubling the fan-out adds only about `mean * ln 2`); `expectedMaxUniform(n, max)` is `max * n/(n+1)`; `quantileMaxExponential(n, q, mean)` is the `q^(1/n)`-quantile of one server, since `P(max <= x) = F(x)^n`. Tests check each against a seeded Monte Carlo run. From David and Nagaraja, *Order Statistics*, 3rd ed.
 - **Hedged requests** (`src/hedge.js`): the delay is calibrated on a separate seed so it is not tuned on the samples it is scored on. A test checks the simulated tail against `P(A > t) * P(B > t - d)`, since a hedged request is late only when both copies are.
 - **Loaded hedging** (`src/loaded.js`): replicas keep a free-at time; hedge checks come due in arrival order, so a FIFO replaces a priority queue. A backup that starts before the primary answers holds its replica until then; one still queued is dropped. A primary that loses runs to completion, so extra work is an upper bound.
 - **Two choices** (`src/balance.js`): the supermarket model from Mitzenmacher, *The Power of Two Choices in Randomized Load Balancing*, IEEE TPDS 2001. The theory column is `T_d = sum over i >= 1 of lambda^((d^i - d) / (d - 1))`, from the fixed point where the share of servers with at least i jobs is `lambda^((d^i - 1) / (d - 1))`. For d = 1 it reduces to the M/M/1 result `1 / (1 - lambda)`.
@@ -73,6 +74,7 @@ simulateBalance({ lambda: 0.9, policy: "two" });
 ```
 src/dist.js      mulberry32, normal and exponential draws, service-time model, percentiles
 src/fanout.js    fan-out tail amplification
+src/order.js     order statistics: expected max and quantiles of a fan-out
 src/hedge.js     hedged requests on independent replicas
 src/loaded.js    hedging on loaded FIFO replicas
 src/balance.js   supermarket model: random, round robin, best of d, shortest queue
